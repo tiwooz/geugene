@@ -83,6 +83,42 @@ fn unknown_and_disabled_commands_error() {
 }
 
 #[test]
+fn photocore_base_profile_allows_only_core_paint_and_document_commands() {
+    let mut s = Session::new();
+    assert!(s.command_available("layer.new.layer"));
+    s.use_photocore_base_profile();
+    for allowed in ["file.new", "edit.undo", "edit.redo", "edit.fill", "paint.stroke", "paint.bucket", "tools.setBrush", "tools.setColors"] {
+        assert!(s.command_available(allowed), "{allowed}");
+    }
+    for denied in ["layer.new.layer", "image.adjustments.invert", "paint.gradient", "paint.magicEraser", "file.export.layersToFiles"] {
+        assert!(!s.command_available(denied), "{denied}");
+        assert!(!s.is_enabled(denied), "{denied}");
+        assert!(matches!(s.execute(denied, json!({})), Err(EngineError::Disabled(..))), "{denied}");
+    }
+    assert!(s.execute("file.new", json!({"width": 16, "height": 16})).is_ok());
+    assert_eq!(s.capability_profile(), CapabilityProfile::PhotoCoreBase);
+}
+
+#[test]
+fn photocore_base_profile_rejects_non_core_fill_modes_and_targets() {
+    let mut s = Session::new();
+    s.use_photocore_base_profile();
+    s.execute("file.new", json!({"width": 16, "height": 16, "background": "transparent"})).unwrap();
+    for (id, params) in [
+        ("edit.fill", json!({"contents": "contentAware"})),
+        ("edit.fill", json!({"contents": "pattern"})),
+        ("edit.fill", json!({"target": "mask"})),
+        ("paint.bucket", json!({"x": 1, "y": 1, "contents": "pattern"})),
+        ("paint.bucket", json!({"x": 1, "y": 1, "sampleAllLayers": true})),
+        ("paint.stroke", json!({"points": [[1, 1]], "target": "mask"})),
+        ("paint.stroke", json!({"points": [[1, 1]], "brush": {"scatter": 1}})),
+    ] {
+        assert!(matches!(s.execute(id, params), Err(EngineError::BadParams { .. })), "{id}");
+    }
+    assert!(s.execute("paint.stroke", json!({"points": [[1, 1]], "erase": true, "zoom": 1.0})).is_ok());
+}
+
+#[test]
 fn file_new_takes_whole_floats_and_survives_odd_sizes() {
     // #254: the New dialog sent `512.0`; it must not fall back to 1920 x 1080.
     let mut s = Session::new();
@@ -1406,4 +1442,19 @@ fn delete_layer_preserves_an_unaffected_active_layer_and_last_layer_guard() {
     assert_eq!(s.active().unwrap().doc.layer_count(), 1);
     assert_eq!(s.active().unwrap().active_layer, Some(other));
     assert_eq!(s.active().unwrap().history.past_len(), before);
+}
+
+#[test]
+fn photocore_viewer_profile_allows_only_viewing() {
+    let mut s = Session::new();
+    s.use_photocore_viewer_profile();
+    assert!(s.is_photocore_viewer_profile() && !s.is_photocore_base_profile());
+    for id in ["help.about", "file.open", "view.fitOnScreen", "view.zoomIn"] {
+        assert!(s.command_available(id), "{id}");
+    }
+    for id in ["paint.stroke", "paint.bucket", "edit.fill", "edit.undo", "layer.new.layer", "file.save", "tools.setBrush"] {
+        assert!(!s.command_available(id), "{id}");
+    }
+    assert!(s.menu_visible("help.about") && !s.menu_visible("file.open") && !s.menu_visible("view.zoomIn"));
+    assert!(s.disabled_reason_with("paint.stroke", &serde_json::json!({})).is_some_and(|r| r.contains("Viewer")));
 }

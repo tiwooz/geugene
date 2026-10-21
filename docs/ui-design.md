@@ -1,5 +1,8 @@
 # UI design system
 
+On Android, Interface > UI Scale > Auto fits the UI to the display width (with a readability
+floor); an explicit scale preference overrides this. Desktop Auto continues to follow system DPI.
+
 ## Themes
 
 | Theme | Intent |

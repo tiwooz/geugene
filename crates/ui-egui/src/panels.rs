@@ -76,10 +76,24 @@ fn visible_sections(hidden: &[String]) -> Vec<Vec<(usize, Vec<Tool>)>> {
     sections
 }
 
+fn toolbar_sections(hidden: &[String], base_profile: bool) -> Vec<Vec<(usize, Vec<Tool>)>> {
+    if !base_profile {
+        return visible_sections(hidden);
+    }
+    let mut hidden = hidden.to_vec();
+    hidden.extend(
+        Tool::ALL
+            .into_iter()
+            .filter(|tool| !matches!(tool, Tool::Brush | Tool::Eraser | Tool::PaintBucket | Tool::Hand | Tool::Zoom))
+            .map(|tool| format!("{tool:?}")),
+    );
+    visible_sections(&hidden)
+}
+
 pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
-    let sections = visible_sections(&app.session.prefs().toolbar.hidden);
+    let sections = toolbar_sections(&app.session.prefs().toolbar.hidden, app.session.is_photocore_base_profile());
     // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
     let w = if double { w1 + bx + 2.0 } else { w1 };
@@ -1054,10 +1068,12 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                     }
                     Tool::PaintBucket if t.pro => {
-                        opt_label(ui, tl!("Fill"));
-                        let mut src = u8::from(app.ui.tool_options.bucket_fill_pattern);
-                        if widgets::dropdown(ui, "bucket-src", &mut src, &[(0u8, tl!("Foreground")), (1, tl!("Pattern"))], 100.0) {
-                            app.ui.tool_options.bucket_fill_pattern = src == 1;
+                        if !app.session.is_photocore_base_profile() {
+                            opt_label(ui, tl!("Fill"));
+                            let mut src = u8::from(app.ui.tool_options.bucket_fill_pattern);
+                            if widgets::dropdown(ui, "bucket-src", &mut src, &[(0u8, tl!("Foreground")), (1, tl!("Pattern"))], 100.0) {
+                                app.ui.tool_options.bucket_fill_pattern = src == 1;
+                            }
                         }
                         opt_label(ui, tl!("Opacity"));
                         widgets::value_field(ui, &mut app.ui.tool_options.fill_opacity, 1.0..=100.0, "%", 62.0);
@@ -1065,7 +1081,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::value_field(ui, &mut app.ui.tool_options.tolerance, 0.0..=255.0, "", 58.0);
                         widgets::checkbox(ui, &mut app.ui.tool_options.anti_alias, tl!("Anti-alias"));
                         widgets::checkbox(ui, &mut app.ui.tool_options.contiguous, tl!("Contiguous"));
-                        widgets::checkbox(ui, &mut app.ui.tool_options.sample_all_layers, tl!("All Layers"));
+                        if !app.session.is_photocore_base_profile() {
+                            widgets::checkbox(ui, &mut app.ui.tool_options.sample_all_layers, tl!("All Layers"));
+                        }
                     }
                     Tool::Gradient if t.pro => {
                         // Live "Gradient" (a Gradient Fill layer) or "Classic gradient" (pixels).
@@ -1480,6 +1498,9 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ("clock", tl!("History"), Group::History),
                 ];
                 for (icon, name, g) in entries {
+                    if app.session.is_photocore_base_profile() && !matches!(g, Group::Color | Group::Layers) {
+                        continue;
+                    }
                     // Studio floats Properties outside the dock.
                     let docked = t.pro || g != Group::Properties;
                     let on = g.shown(&p) && !(docked && app.ui.dock.is_collapsed(g));
@@ -4133,6 +4154,16 @@ mod toolbar_hidden_tests {
         assert_eq!(tool_buttons(&mut app), all - 1, "a slot whose tools are all hidden is gone");
         hide(&mut app, &[Tool::Sponge]);
         assert_eq!(tool_buttons(&mut app), all, "a slot with a visible tool stays");
+    }
+
+    #[test]
+    fn photocore_base_toolbar_shows_core_painting_and_navigation_tools() {
+        let mut session = photocraft_engine::Session::new();
+        session.use_photocore_base_profile();
+        let mut app = PhotocraftApp::new(session, crate::Services::default());
+        let tools: Vec<Tool> = toolbar_sections(&[], true).into_iter().flatten().flat_map(|(_, slot)| slot).collect();
+        assert_eq!(tools, [Tool::Brush, Tool::Eraser, Tool::PaintBucket, Tool::Hand, Tool::Zoom]);
+        assert!(tool_buttons(&mut app) >= 5);
     }
 
     #[test]

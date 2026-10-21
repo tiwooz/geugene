@@ -723,6 +723,24 @@ impl PhotocraftApp {
         };
         // Saved preferences are in place before the first frame; recovery starts in upkeep.
         prefs_ui::load(&mut app);
+        if app.session.is_photocore_base_profile() {
+            app.ui.panels.properties = false;
+            app.ui.panels.history = false;
+            app.ui.panels.navigator = false;
+            app.ui.panels.character = false;
+            app.ui.panels.layers = true;
+            app.ui.panels.color = true;
+            app.ui.panels.dock = true;
+            app.ui.tool_options.bucket_fill_pattern = false;
+            app.ui.tool_options.sample_all_layers = false;
+            app.ui.dock.hidden_tabs.remove(&dock::Group::Color);
+            app.ui.dock.hidden_tabs.remove(&dock::Group::Layers);
+            app.ui.dock_tabs.color = 1;
+            app.ui.dock_tabs.layers = 0;
+        }
+        if app.session.is_photocore_viewer_profile() {
+            app.apply_viewer_chrome();
+        }
         // After the saved preferences, which say whether the set was already offered.
         kys_import::offer_import(&mut app);
         notices::wayland_file_drop_guidance(&mut app);
@@ -786,8 +804,21 @@ impl PhotocraftApp {
         self
     }
 
+    /// The PhotoCore Viewer shows only the image and a menu bar with About: no toolbar, options
+    /// bar, panels or status bar, and the Hand tool so clicks pan instead of painting.
+    fn apply_viewer_chrome(&mut self) {
+        self.ui.panels.toolbar = false;
+        self.ui.panels.options_bar = false;
+        self.ui.panels.dock = false;
+        self.ui.panels.status_bar = false;
+        self.ui.tool = state::Tool::Hand;
+    }
+
     /// Run an engine command, reporting errors in the status bar.
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        if !self.session.command_available(id) {
+            return Err(format!("This command is not available in the {}.", self.session.capability_profile_name()));
+        }
         if let Some(result) = delete_layer_prompt::intercept(self, id, &params) {
             return result;
         }
@@ -1434,6 +1465,18 @@ impl eframe::App for PhotocraftApp {
             return;
         }
         let t0 = gpu_canvas::now_ms();
+        if self.session.is_photocore_base_profile()
+            && !matches!(self.ui.tool, state::Tool::Brush | state::Tool::Eraser | state::Tool::PaintBucket | state::Tool::Hand | state::Tool::Zoom)
+        {
+            self.ui.tool = state::Tool::Brush;
+        }
+        if self.session.is_photocore_base_profile() {
+            self.ui.tool_options.bucket_fill_pattern = false;
+            self.ui.tool_options.sample_all_layers = false;
+        }
+        if self.session.is_photocore_viewer_profile() {
+            self.apply_viewer_chrome();
+        }
         // Each painting tool keeps its own brush (#218), so switch the active tool's brush in
         // before anything this frame reads it (the cursor, the options bar, a stroke).
         paint_mouse::sync_tool_brush(self);

@@ -1,2 +1,4 @@
 [alias]
 xtask = "run -p xtask --"
+# ProjectIle is a separate app with its own workspace (projectile/); this only runs it from here.
+projectile = "run --manifest-path projectile/Cargo.toml --"

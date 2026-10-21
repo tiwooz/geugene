@@ -29,7 +29,6 @@ photocraft-format = { workspace = true }
 photocraft-codecs = { workspace = true }
 egui = { workspace = true }
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
-eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
@@ -41,6 +40,13 @@ flate2 = { workspace = true }
 rayon = { workspace = true }
 # Safe native UI-language APIs (Windows/macOS); no subprocess or web dependency.
 sys-locale = "=0.3.2"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# AccessKit's winit integration is incompatible with eframe's Android NativeActivity backend.
+eframe = { workspace = true, features = ["default_fonts", "wgpu"] }
 
 [dev-dependencies]
 # Synthetic raw files for the open-time Camera Raw dialog tests.

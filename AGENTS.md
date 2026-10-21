@@ -40,6 +40,9 @@ apps/
   photocraft-cli             headless CLI (convert/info/run/batch/commands/mcp)
   photocraft-web             the same app in the browser (trunk + wasm-bindgen)
 xtask/                       cargo xtask layers | wasm | ci | stats | corpus | test-corpus | parity | perf | scorecard
+projectile/                  ProjectIle: a separate app (own Cargo workspace, not a PhotoCraft member) that
+                             generates PhotoCore projects from a PhotoCraft checkout; run `cargo projectile`;
+                             see projectile/README.md
 ```
 
 **Layering is enforced** by `cargo xtask layers`. A crate may depend only on lower layers. `psd`, `codecs` and `cms` depend on nothing in the workspace. Nothing below `ui-egui` may use egui, eframe, winit or rfd. A new crate must be registered in `xtask/src/layers.rs`.

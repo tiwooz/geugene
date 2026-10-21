@@ -464,7 +464,10 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
         child.set_clip_rect(rect.intersect(ui.clip_rect()));
         child.spacing_mut().item_spacing.y = if t.pro { 0.0 } else { 6.0 };
         let before = *g.tab_mut(&mut app.ui.dock_tabs);
-        let visible = app.ui.dock.visible_tabs(g, t.pro);
+        let mut visible = app.ui.dock.visible_tabs(g, t.pro);
+        if app.session.is_photocore_base_profile() {
+            visible.retain(|(_, name)| matches!((g, *name), (Group::Color, "Color") | (Group::Layers, "Layers")));
+        }
         if visible.is_empty() {
             continue;
         }

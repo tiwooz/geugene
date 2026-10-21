@@ -11,6 +11,10 @@ build = "build.rs"
 # Open HEIC/HEIF photos (the optional photocraft-heif crate). Not default so distributors choose
 # it; official builds (CI, packaging/, release) build with `--features heif`.
 heif = ["photocraft-codecs/heif"]
+# PhotoCore Base exposes only the core Brush, Paint Bucket, Eraser, and file/document workflow.
+base-profile = []
+# PhotoCore Viewer shows one image at startup: no tools, no editing, only About in the menus.
+viewer-profile = []
 
 [lints]
 workspace = true
@@ -18,7 +22,6 @@ workspace = true
 [dependencies]
 photocraft-doc = { workspace = true }
 photocraft-color = { workspace = true }
-photocraft-raster = { workspace = true }
 photocraft-geom = { workspace = true }
 photocraft-compose = { workspace = true }
 photocraft-engine = { workspace = true }

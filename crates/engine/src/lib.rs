@@ -320,6 +320,15 @@ impl Default for ToolState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CapabilityProfile {
+    #[default]
+    Full,
+    PhotoCoreBase,
+    /// A purely visual image viewer: no tools, no editing, only About in the menus.
+    PhotoCoreViewer,
+}
+
 #[derive(Default)]
 pub struct Session {
     docs: Vec<DocState>,
@@ -370,6 +379,7 @@ pub struct Session {
     /// the same check a top-level request sees. `None` runs everything, which is what a local
     /// UI and `photocraft-cli run` do.
     pub authorize: Option<fn(&str, &serde_json::Value) -> Result<()>>,
+    capability_profile: CapabilityProfile,
     /// Background jobs (see [`jobs`]).
     jobs: jobs::Jobs,
 }
@@ -389,6 +399,139 @@ pub fn move_item<T>(v: &mut Vec<T>, i: usize, to: usize) -> Option<usize> {
 impl Session {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Restrict command execution to the PhotoCore Base profile's core paint workflow.
+    pub fn use_photocore_base_profile(&mut self) {
+        self.capability_profile = CapabilityProfile::PhotoCoreBase;
+    }
+
+    pub fn capability_profile(&self) -> CapabilityProfile {
+        self.capability_profile
+    }
+
+    pub fn is_photocore_base_profile(&self) -> bool {
+        self.capability_profile == CapabilityProfile::PhotoCoreBase
+    }
+
+    /// Restrict the session to viewing one image: no tools or edits, only Help › About in menus.
+    pub fn use_photocore_viewer_profile(&mut self) {
+        self.capability_profile = CapabilityProfile::PhotoCoreViewer;
+    }
+
+    pub fn is_photocore_viewer_profile(&self) -> bool {
+        self.capability_profile == CapabilityProfile::PhotoCoreViewer
+    }
+
+    /// Display name of the active restriction, for "not available in …" messages.
+    pub fn capability_profile_name(&self) -> &'static str {
+        match self.capability_profile {
+            CapabilityProfile::Full => "PhotoCraft",
+            CapabilityProfile::PhotoCoreBase => "PhotoCore Base profile",
+            CapabilityProfile::PhotoCoreViewer => "PhotoCore Viewer profile",
+        }
+    }
+
+    /// Whether a command shows in menus. The viewer keeps `file.open` and view commands for its
+    /// startup image and gestures, but its menus show only About.
+    pub fn menu_visible(&self, id: &str) -> bool {
+        match self.capability_profile {
+            CapabilityProfile::PhotoCoreViewer => id == "help.about",
+            _ => self.command_available(id),
+        }
+    }
+
+    /// Whether a command is part of this session's enabled capability set.
+    pub fn command_available(&self, id: &str) -> bool {
+        match self.capability_profile {
+            CapabilityProfile::Full => true,
+            CapabilityProfile::PhotoCoreViewer => matches!(
+                id,
+                "help.about" | "file.open" | "view.zoomIn" | "view.zoomOut" | "view.fitOnScreen" | "view.actualPixels" | "view.resetView"
+            ),
+            CapabilityProfile::PhotoCoreBase if id.starts_with("file.openRecent.") => true,
+            CapabilityProfile::PhotoCoreBase => matches!(
+                id,
+                "file.new"
+                    | "file.open"
+                    | "file.openAs"
+                    | "file.save"
+                    | "file.saveAs"
+                    | "file.saveACopy"
+                    | "file.exit"
+                    | "file.clearRecent"
+                    | "edit.undo"
+                    | "edit.redo"
+                    | "edit.fill"
+                    | "layer.select"
+                    | "paint.stroke"
+                    | "paint.bucket"
+                    | "tools.setBrush"
+                    | "tools.getBrush"
+                    | "tools.setColors"
+                    | "tools.swapColors"
+                    | "tools.defaultColors"
+                    | "view.zoomIn"
+                    | "view.zoomOut"
+                    | "view.fitOnScreen"
+                    | "view.actualPixels"
+                    | "view.resetView"
+                    | "view.screenMode.standard"
+                    | "view.screenMode.cycle"
+                    | "help.about"
+            ),
+        }
+    }
+
+    pub(crate) fn profile_params_error(&self, id: &str, params: &Value) -> Option<String> {
+        if !self.is_photocore_base_profile() {
+            return None;
+        }
+        let object = params.as_object()?;
+        let allowed_keys = |keys: &[&str]| object.keys().all(|key| keys.contains(&key.as_str()) || key == "coalesce");
+        match id {
+            "paint.bucket" => {
+                if !allowed_keys(&["x", "y", "tolerance", "contiguous", "antiAlias", "sampleAllLayers", "opacity", "contents", "color", "target"]) {
+                    return Some("PhotoCore Base Paint Bucket supports solid-colour fills only.".into());
+                }
+                if object.get("contents").and_then(Value::as_str).is_some_and(|contents| contents != "foreground") {
+                    return Some("PhotoCore Base Paint Bucket supports the foreground colour only.".into());
+                }
+                if object.get("sampleAllLayers").and_then(Value::as_bool).is_some_and(|sample| sample) {
+                    return Some("PhotoCore Base Paint Bucket samples and fills the active layer only.".into());
+                }
+                if object.get("target").is_some_and(|target| target.as_str() != Some("pixels")) {
+                    return Some("PhotoCore Base painting is limited to layer pixels.".into());
+                }
+                None
+            }
+            "edit.fill" => {
+                if !allowed_keys(&["contents", "color", "mode", "opacity", "preserveTransparency", "target"]) {
+                    return Some("PhotoCore Base Fill supports solid-colour fills only.".into());
+                }
+                if object
+                    .get("contents")
+                    .and_then(Value::as_str)
+                    .is_some_and(|contents| !matches!(contents, "foreground" | "background" | "color" | "black" | "gray" | "white"))
+                {
+                    return Some("PhotoCore Base Fill supports foreground, background, or a solid colour only.".into());
+                }
+                if object.get("target").is_some_and(|target| target.as_str() != Some("pixels")) {
+                    return Some("PhotoCore Base Fill is limited to layer pixels.".into());
+                }
+                None
+            }
+            "paint.stroke" => {
+                if !allowed_keys(&["points", "erase", "zoom", "target", "seed"]) {
+                    return Some("PhotoCore Base strokes support the standard Brush or Eraser only.".into());
+                }
+                if object.get("target").is_some_and(|target| target.as_str() != Some("pixels")) {
+                    return Some("PhotoCore Base painting is limited to layer pixels.".into());
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     pub fn documents(&self) -> &[DocState] {
@@ -495,6 +638,12 @@ impl Session {
     /// [`Self::disabled_reason`] for a call with `params`.
     pub fn disabled_reason_with(&self, id: &str, params: &Value) -> Option<String> {
         let Some(s) = commands::find(id) else { return Some(format!("unknown command `{id}`")) };
+        if !self.command_available(id) {
+            return Some(format!("not available in the {}", self.capability_profile_name()));
+        }
+        if let Some(error) = self.profile_params_error(id, params) {
+            return Some(error);
+        }
         self.precondition(s, &channel_cmds::inject_target(self, id, params.clone())).err().or_else(|| self.job_conflict(id, s.journal))
     }
 

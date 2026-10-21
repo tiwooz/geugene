@@ -127,6 +127,9 @@ fn workspace_name(id: &str) -> Option<&'static str> {
 
 /// Run a command id from any source (menu, shortcut, palette, automation).
 pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if !app.session.command_available(id) {
+        return Err("This command is not available in the PhotoCore Base profile.".into());
+    }
     if app.automation_input
         && let Some(authorize) = app.services.automation_command.as_ref()
     {
@@ -145,6 +148,9 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if !app.session.command_available(id) {
+        return Err("This command is not available in the PhotoCore Base profile.".into());
+    }
     if id == "ui.symmetryTransform" {
         return crate::symmetry_ui::begin(app).map(|_| Value::Null);
     }
@@ -814,6 +820,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     let known = is_live;
     let mut items: Vec<MenuItem> = crate::menu_catalog::CATALOG
         .iter()
+        .filter(|item| app.session.menu_visible(item.3))
         .map(|&(path, label, sc, id)| MenuItem {
             id: id.to_string(),
             label: label.to_string(),
@@ -828,7 +835,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         .collect();
     // 2) Our commands that Photoshop's tree doesn't list (or lists under another id).
     let mut extra: Vec<MenuItem> = Vec::new();
-    for &(id, label, path, sc) in UI_COMMANDS {
+    for &(id, label, path, sc) in UI_COMMANDS.iter().filter(|item| app.session.menu_visible(item.0)) {
         extra.push(MenuItem {
             id: id.into(),
             label: label.into(),
@@ -839,7 +846,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             color: None,
         });
     }
-    for c in photocraft_engine::command_specs().iter().filter(|c| !c.menu.is_empty()) {
+    for c in photocraft_engine::command_specs().iter().filter(|c| !c.menu.is_empty() && app.session.command_available(c.id)) {
         extra.push(MenuItem {
             id: c.id.into(),
             label: c.label.into(),
@@ -864,7 +871,9 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             items.insert(at, e);
         }
     }
-    crate::plugin_ui::insert_menu_items(app, &mut items);
+    if app.session.capability_profile() == photocraft_engine::CapabilityProfile::Full {
+        crate::plugin_ui::insert_menu_items(app, &mut items);
+    }
     if let Some(mask) = app.session.active().and_then(|s| s.active_layer.and_then(|id| s.doc.layer(id))).and_then(|l| l.mask.as_ref())
         && let Some(item) = items.iter_mut().find(|i| i.id == "layer.layerMask.enabled")
     {
@@ -1360,6 +1369,39 @@ pub fn apply_workspace(app: &mut PhotocraftApp) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn photocore_base_menu_contains_only_supported_commands() {
+        let mut session = photocraft_engine::Session::new();
+        session.use_photocore_base_profile();
+        let app = PhotocraftApp::new(session, Default::default());
+        let items = menu_items(&app);
+        assert!(items.iter().any(|item| item.id == "file.open"));
+        assert!(items.iter().any(|item| item.id == "edit.undo"));
+        assert!(!items.iter().any(|item| item.id == "layer.new.layer"));
+        assert!(!items.iter().any(|item| item.id.starts_with("window.theme.")));
+        assert!(items.iter().all(|item| app.session.command_available(&item.id) || item.id == "---"));
+    }
+
+    #[test]
+    fn photocore_viewer_menu_has_only_about() {
+        let mut session = photocraft_engine::Session::new();
+        session.use_photocore_viewer_profile();
+        let app = PhotocraftApp::new(session, Default::default());
+        let ids: Vec<String> = menu_items(&app).into_iter().map(|item| item.id).filter(|id| id != "---").collect();
+        assert_eq!(ids, ["help.about"]);
+        assert!(!app.ui.panels.toolbar && !app.ui.panels.dock && !app.ui.panels.options_bar);
+    }
+
+    #[test]
+    fn photocore_base_rejects_unavailable_ui_commands() {
+        let mut session = photocraft_engine::Session::new();
+        session.use_photocore_base_profile();
+        let mut app = PhotocraftApp::new(session, Default::default());
+        let ctx = egui::Context::default();
+        assert!(invoke(&mut app, &ctx, "window.theme.studio", json!({})).is_err());
+        assert!(app.session.command_available("file.open"));
+    }
 
     #[test]
     fn sync_with_system_menu_keeps_saved_slots_and_its_checkmark_across_palettes() {

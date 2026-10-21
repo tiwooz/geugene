@@ -62,6 +62,19 @@ fn every_contents_option_fills() {
 }
 
 #[test]
+fn photocore_base_fill_dialog_exposes_only_solid_colour_options() {
+    let mut session = photocraft_engine::Session::new();
+    session.use_photocore_base_profile();
+    let mut app = PhotocraftApp::new(session, Default::default());
+    app.run("file.new", json!({"width": 12, "height": 12})).unwrap();
+    app.session.prefs.edit(|prefs| prefs.dialogs.insert(COMMAND.into(), json!({"contents": "contentAware"})));
+    let fields = fields(&app);
+    assert_eq!(fields["contents"], json!("foreground"));
+    assert_eq!(contents_options(&app).iter().map(|(id, _)| *id).collect::<Vec<_>>(), ["foreground", "background", "color", "black", "gray", "white"]);
+    assert!(fill(&mut app, json!({"contents": "contentAware"})).is_err());
+}
+
+#[test]
 fn mode_opacity_and_preserve_transparency() {
     let mut app = app();
     app.run("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 30})).unwrap();

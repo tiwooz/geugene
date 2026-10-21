@@ -1604,6 +1604,13 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let n = app.session.documents().len();
     // Files opening in the background (#210) have tabs before they have documents.
     let opening = !app.jobs.opens.is_empty();
+    if !opening && n == 0 && app.session.is_photocore_viewer_profile() {
+        // The viewer never shows the Home screen: it exists to show its startup image.
+        ui.centered_and_justified(|ui| {
+            ui.label(egui::RichText::new(tl!("No image to show. Start the viewer with an image file.")).color(crate::theme::Tokens::get(ui.ctx()).text_dim));
+        });
+        return;
+    }
     if !opening && app.ui.chrome.shows_home(n, app.session.prefs().general.auto_show_home_screen) {
         start_screen(app, ui);
         return;

@@ -27,6 +27,12 @@ pub const CONTENTS: [(&str, &str); 9] = [
     ("gray", "50% Gray"),
     ("white", "White"),
 ];
+const BASE_CONTENTS: [(&str, &str); 6] =
+    [("foreground", "Foreground Color"), ("background", "Background Color"), ("color", "Color…"), ("black", "Black"), ("gray", "50% Gray"), ("white", "White")];
+
+fn contents_options(app: &PhotocraftApp) -> &'static [(&'static str, &'static str)] {
+    if app.session.is_photocore_base_profile() { &BASE_CONTENTS } else { &CONTENTS }
+}
 
 /// Params the dialog edits and remembers.
 const KEYS: [&str; 7] = ["contents", "color", "pattern", "colorAdaptation", "mode", "opacity", "preserveTransparency"];
@@ -44,7 +50,7 @@ fn hex(c: [f32; 4]) -> String {
 /// A remembered value, if it is one the dialog can show (a corrupt preference is ignored).
 fn valid(app: &PhotocraftApp, key: &str, v: &Value) -> bool {
     match key {
-        "contents" => v.as_str().is_some_and(|c| CONTENTS.iter().any(|(k, _)| *k == c)),
+        "contents" => v.as_str().is_some_and(|c| contents_options(app).iter().any(|(k, _)| *k == c)),
         "mode" | "opacity" | "preserveTransparency" => crate::dialog_blend_ui::valid(key, v),
         "color" => v.as_str().is_some_and(|h| h.len() == 7 && h.starts_with('#') && h.get(1..).is_some_and(|d| d.chars().all(|c| c.is_ascii_hexdigit()))),
         "pattern" => v.as_str().is_some_and(|p| app.session.patterns.items.iter().any(|q| q.id == p)),
@@ -135,7 +141,7 @@ pub fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) 
     let mut contents = get_str(f, "contents", "foreground");
     ui.horizontal(|ui| {
         label(ui, tl!("Contents:"));
-        let opts: Vec<(String, &str)> = CONTENTS.iter().map(|(k, l)| (k.to_string(), *l)).collect();
+        let opts: Vec<(String, &str)> = contents_options(app).iter().map(|(k, l)| (k.to_string(), *l)).collect();
         if crate::widgets::dropdown(ui, "fill-contents", &mut contents, &opts, 170.0) {
             f.insert("contents".into(), json!(contents));
             // Choosing Color… opens the Color Picker, as in Photoshop.

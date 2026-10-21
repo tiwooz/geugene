@@ -10,7 +10,8 @@ What exists on `main` today. The numbered sections below are the original design
 - **Workspace:** 25 library crates under `crates/`, 3 apps (`photocraft` desktop, `photocraft-cli`,
   `photocraft-web`), `xtask`, an example plug-in and 5 fuzz crates; ~393,000 lines of Rust in
   ~1,020 files; ~5,460 `#[test]` functions (ui-egui 1,677, engine 1,237, algo 408, io 377,
-  codecs 325, psd 263). Crate map and layers: [`AGENTS.md`](../AGENTS.md) §2 and
+  codecs 325, psd 263). The ProjectIle generator in `projectile/` is a separate app with its own
+  Cargo workspace; it is not a member and PhotoCraft never builds or launches it. Crate map and layers: [`AGENTS.md`](../AGENTS.md) §2 and
   `xtask/src/layers.rs` (enforced by `cargo xtask layers`).
 - **UI toolkit:** decided: egui/eframe on wgpu (no webview, no JavaScript). The same Rust builds
   to WebAssembly for the browser (trunk + wasm-bindgen).

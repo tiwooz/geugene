@@ -267,16 +267,35 @@ fn display_scale(pref: prefs::UiScale, native: Option<f32>, monitor_px: Option<e
     let native = native.filter(|v| v.is_finite() && *v > 0.0).unwrap_or(1.0);
     match pref {
         prefs::UiScale::Auto => {
-            // Follow the system's scale, fractional ones included (125%, 150%, 175%: #1072).
-            // Only when the system reports no scaling at all (100%) does a 4K display fall back
-            // to 200%, since unscaled 4K controls are unreadably small (#225). Overriding a scale
-            // the user picked in their desktop settings left only "too small" or "too big".
-            let unscaled = (native - 1.0).abs() < 0.01;
-            let is_4k = monitor_px.is_some_and(|s| s.x.is_finite() && s.y.is_finite() && s.x.min(s.y) >= 2160.0 && s.x.max(s.y) >= 3840.0);
-            if unscaled && is_4k { 2.0 } else { native }
+            #[cfg(target_os = "android")]
+            {
+                fit_android_scale(native, monitor_px)
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                // Follow the system's scale, fractional ones included (125%, 150%, 175%: #1072).
+                // Only when the system reports no scaling at all (100%) does a 4K display fall back
+                // to 200%, since unscaled 4K controls are unreadably small (#225). Overriding a scale
+                // the user picked in their desktop settings left only "too small" or "too big".
+                let unscaled = (native - 1.0).abs() < 0.01;
+                let is_4k = monitor_px.is_some_and(|s| s.x.is_finite() && s.y.is_finite() && s.x.min(s.y) >= 2160.0 && s.x.max(s.y) >= 3840.0);
+                if unscaled && is_4k { 2.0 } else { native }
+            }
         }
         fixed => fixed.name().parse::<f32>().map_or(1.0, |pct| pct / 100.0),
     }
+}
+
+#[cfg(any(target_os = "android", test))]
+fn fit_android_scale(native: f32, monitor_px: Option<egui::Vec2>) -> f32 {
+    const DESIGN_WIDTH_POINTS: f32 = 900.0;
+    const MIN_SCALE_RATIO: f32 = 0.65;
+
+    let Some(width_px) = monitor_px.map(|size| size.x).filter(|width| width.is_finite() && *width > 0.0) else {
+        return native;
+    };
+    let width_points = width_px / native;
+    native * (width_points / DESIGN_WIDTH_POINTS).clamp(MIN_SCALE_RATIO, 1.0)
 }
 
 fn sync_display_scale(app: &PhotocraftApp, ctx: &egui::Context) {
@@ -2337,6 +2356,16 @@ mod tests {
         }
         assert_eq!(display_scale(Auto, None, None), 1.0);
         assert_eq!(display_scale(Auto, Some(f32::NAN), Some(vec2(f32::INFINITY, 2160.0))), 1.0);
+    }
+
+    #[test]
+    fn android_auto_scale_fits_narrow_displays_and_preserves_large_displays() {
+        assert!((fit_android_scale(3.0, Some(vec2(1080.0, 2400.0))) - 1.95).abs() < 1e-4);
+        assert!((fit_android_scale(3.0, Some(vec2(2700.0, 1080.0))) - 3.0).abs() < 1e-4);
+        assert!((fit_android_scale(2.0, Some(vec2(1800.0, 2560.0))) - 2.0).abs() < 1e-4);
+        assert!((fit_android_scale(3.0, Some(vec2(450.0, 900.0))) - 1.95).abs() < 1e-4, "scale has a readability floor");
+        assert_eq!(fit_android_scale(2.0, None), 2.0);
+        assert_eq!(fit_android_scale(2.0, Some(vec2(f32::NAN, 900.0))), 2.0);
     }
 
     #[test]

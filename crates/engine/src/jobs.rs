@@ -604,6 +604,12 @@ impl Session {
     /// Run the command `id`: inline, or (with `background`) as a job when it is one.
     pub(crate) fn dispatch(&mut self, id: &str, params: Value, background: bool) -> Result<Started> {
         let spec = crate::commands::find(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
+        if !self.command_available(id) {
+            return Err(EngineError::Disabled(id.to_string(), "not available in the PhotoCore Base profile".into()));
+        }
+        if let Some(message) = self.profile_params_error(id, &params) {
+            return Err(EngineError::BadParams { cmd: id.to_string(), msg: message });
+        }
         // Params are named fields: anything but an object (or null, meaning none) is a caller
         // mistake, not "use every default".
         if !(params.is_object() || params.is_null()) {
